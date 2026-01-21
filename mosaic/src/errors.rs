@@ -19,6 +19,7 @@ pub enum MosaicError {
     SigningSessionIdMustEqualRootLastId,
     ApprovalsDidNotReachThreshold,
     ProvidedDestinationProgramMismatchWithRootDestinationProgram, /* TODO: make test for this case */
+    ThresholdCanNotBeHigherThanLenOfOperators,
 }
 
 impl std::fmt::Display for MosaicError {
@@ -81,6 +82,9 @@ impl std::fmt::Display for MosaicError {
                     f,
                     "root pda destination program should match provided program id for cpi"
                 )
+            }
+            MosaicError::ThresholdCanNotBeHigherThanLenOfOperators => {
+                write!(f, "threshold should not be higher than operators count")
             }
         }
     }

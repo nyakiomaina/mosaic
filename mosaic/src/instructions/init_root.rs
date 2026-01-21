@@ -82,6 +82,10 @@ impl<'info> InitializeOperators<'info> {
     pub fn handler(&mut self) -> ProgramResult {
         root_pda_check(&self.accounts.root.address(), &[self.instruction_data.bump])?;
 
+        if self.instruction_data.threshold as usize > self.instruction_data.operators.len() {
+            return Err(MosaicError::ThresholdCanNotBeHigherThanLenOfOperators.into());
+        }
+
         let root_ix_data_bump = [self.instruction_data.bump];
         let root_seeds = [Seed::from(ROOT_PDA), Seed::from(&root_ix_data_bump)];
         let cpi_signer = Signer::from(&root_seeds);
