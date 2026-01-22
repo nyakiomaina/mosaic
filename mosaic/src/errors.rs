@@ -20,6 +20,7 @@ pub enum MosaicError {
     ApprovalsDidNotReachThreshold,
     ProvidedDestinationProgramMismatchWithRootDestinationProgram, /* TODO: make test for this case */
     ThresholdCanNotBeHigherThanLenOfOperators,
+    OperatorsCountMustBePositive,
 }
 
 impl std::fmt::Display for MosaicError {
@@ -85,6 +86,9 @@ impl std::fmt::Display for MosaicError {
             }
             MosaicError::ThresholdCanNotBeHigherThanLenOfOperators => {
                 write!(f, "threshold should not be higher than operators count")
+            }
+            MosaicError::OperatorsCountMustBePositive => {
+                write!(f, "there must be at least one operator")
             }
         }
     }
