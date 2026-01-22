@@ -109,12 +109,18 @@ impl<'info> InitializeOperators<'info> {
 
     #[must_use]
     fn mandatory_checks(ix_data: &InitializeRootIxData) -> Result<(), ProgramError> {
-        if ix_data.operators.len() == 0 {
+        if ix_data.operators.is_empty() {
             return Err(MosaicError::OperatorsCountMustBePositive.into());
         }
-        if ix_data.threshold as usize > ix_data.operators.len() || ix_data.threshold == 0 {
+
+        if ix_data.threshold == 0 {
+            return Err(MosaicError::ThresholdCanNotBeZero.into());
+        }
+
+        if ix_data.threshold as usize > ix_data.operators.len() {
             return Err(MosaicError::ThresholdCanNotBeHigherThanLenOfOperators.into());
         }
+
         Ok(())
     }
 }
