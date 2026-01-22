@@ -82,6 +82,8 @@ impl<'info> InitializeOperators<'info> {
     pub fn handler(&mut self) -> ProgramResult {
         root_pda_check(&self.accounts.root.address(), &[self.instruction_data.bump])?;
 
+        Self::mandatory_checks(&self.instruction_data)?;
+
         let root_ix_data_bump = [self.instruction_data.bump];
         let root_seeds = [Seed::from(ROOT_PDA), Seed::from(&root_ix_data_bump)];
         let cpi_signer = Signer::from(&root_seeds);
@@ -101,6 +103,23 @@ impl<'info> InitializeOperators<'info> {
         // write to account
         let mut root_account = self.accounts.root.try_borrow_mut()?;
         root_account[..root_data.len()].copy_from_slice(&root_data);
+
+        Ok(())
+    }
+
+    #[must_use]
+    fn mandatory_checks(ix_data: &InitializeRootIxData) -> Result<(), ProgramError> {
+        if ix_data.operators.is_empty() {
+            return Err(MosaicError::OperatorsCountMustBePositive.into());
+        }
+
+        if ix_data.threshold == 0 {
+            return Err(MosaicError::ThresholdCanNotBeZero.into());
+        }
+
+        if ix_data.threshold as usize > ix_data.operators.len() {
+            return Err(MosaicError::ThresholdCanNotBeHigherThanLenOfOperators.into());
+        }
 
         Ok(())
     }
