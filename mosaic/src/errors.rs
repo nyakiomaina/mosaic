@@ -22,6 +22,7 @@ pub enum MosaicError {
     ThresholdCanNotBeHigherThanLenOfOperators,
     OperatorsCountMustBePositive,
     ThresholdCanNotBeZero,
+    ReachedOperatorsLimit,
 }
 
 impl std::fmt::Display for MosaicError {
@@ -93,6 +94,9 @@ impl std::fmt::Display for MosaicError {
             }
             MosaicError::ThresholdCanNotBeZero => {
                 write!(f, "threshold can not be zero")
+            }
+            MosaicError::ReachedOperatorsLimit => {
+                write!(f, "max operators limit reached")
             }
         }
     }

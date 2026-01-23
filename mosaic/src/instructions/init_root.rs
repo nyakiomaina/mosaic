@@ -113,6 +113,10 @@ impl<'info> InitializeOperators<'info> {
             return Err(MosaicError::OperatorsCountMustBePositive.into());
         }
 
+        if ix_data.operators.len() > 20 {
+            return Err(MosaicError::ReachedOperatorsLimit.into());
+        }
+
         if ix_data.threshold == 0 {
             return Err(MosaicError::ThresholdCanNotBeZero.into());
         }
