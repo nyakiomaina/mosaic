@@ -1,5 +1,6 @@
 use crate::{
     errors::MosaicError, instructions::init_signing_session::InitializeSigningSessionIxData,
+    state::PackUnpack,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use pinocchio::{Address, error::ProgramError};
@@ -151,15 +152,4 @@ impl SigningSession {
     }
 }
 
-impl SigningSession {
-    /// returns serialized data with length
-    pub fn serialize(&self) -> Result<(Vec<u8>, usize), ProgramError> {
-        let data = borsh::to_vec(&self).map_err(|_| ProgramError::InvalidAccountData)?;
-        let size = data.len();
-        Ok((data, size))
-    }
-
-    pub fn deserialize(data: &[u8]) -> Result<Self, ProgramError> {
-        borsh::from_slice(&data).map_err(|_| ProgramError::InvalidAccountData)
-    }
-}
+impl PackUnpack for SigningSession {}

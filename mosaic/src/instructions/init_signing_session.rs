@@ -3,7 +3,7 @@ use crate::{
     errors::MosaicError,
     instructions::{root_pda_check, signing_session_pda_check},
     seeds::SIGNING_SESSION_PDA,
-    state::{root::Root, signing_session::SigningSession},
+    state::{PackUnpack, root::Root, signing_session::SigningSession},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use pinocchio::{
@@ -99,7 +99,7 @@ impl<'info> TryFrom<(&'info [AccountView], &'info [u8])> for InitializeSigningSe
 impl<'info> InitializeSigningSession<'info> {
     pub fn handler(&mut self) -> ProgramResult {
         let mut root_account = self.accounts.root.try_borrow_mut()?;
-        let mut root_data = Root::deserialize(&root_account)?;
+        let mut root_data = Root::unpack(&root_account)?;
 
         root_data.increment_last_id()?;
 
@@ -129,7 +129,7 @@ impl<'info> InitializeSigningSession<'info> {
             root_data.last_id,
             self.accounts.root.address(),
         )
-        .serialize()?;
+        .pack()?;
 
         // create signing session account
         pinocchio_system::instructions::CreateAccount {
@@ -142,7 +142,7 @@ impl<'info> InitializeSigningSession<'info> {
         .invoke_signed(&[cpi_signer])?;
 
         // write updated root state
-        let (updated_root_data, updated_root_data_len) = root_data.serialize()?;
+        let (updated_root_data, updated_root_data_len) = root_data.pack()?;
         root_account[..updated_root_data_len].copy_from_slice(&updated_root_data);
 
         // write to signing session account

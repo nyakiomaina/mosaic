@@ -5,6 +5,7 @@ use crate::{
     invoke_signed_dynamic,
     seeds::ROOT_PDA,
     state::{
+        PackUnpack,
         root::Root,
         signing_session::{InstructionAccount, SigningSession},
     },
@@ -105,7 +106,7 @@ impl<'info> TryFrom<(&'info [AccountView], &'info [u8])> for Execute<'info> {
 impl<'info> Execute<'info> {
     pub fn handler(&mut self) -> ProgramResult {
         let root_account = self.accounts.root.try_borrow()?;
-        let root_data = Root::deserialize(&root_account)?;
+        let root_data = Root::unpack(&root_account)?;
         let root_pda = Address::create_program_address(&[ROOT_PDA, &[root_data.bump]], &ID.into())
             .map_err(|_| ProgramError::InvalidSeeds)?;
 
@@ -115,7 +116,7 @@ impl<'info> Execute<'info> {
 
         let signing_data = {
             let signing_account = self.accounts.signing_session.try_borrow()?;
-            SigningSession::deserialize(&signing_account)?
+            SigningSession::unpack(&signing_account)?
         };
 
         root_pda_check(&self.accounts.root.address(), &[root_data.bump])?;
@@ -178,7 +179,7 @@ impl<'info> Execute<'info> {
         let mut signing_data = signing_data;
         signing_data.progress_phase_checked()?; /* set signing session phase to executed */
 
-        let (serialized_data, serialized_len) = signing_data.serialize()?;
+        let (serialized_data, serialized_len) = signing_data.pack()?;
         let mut signing_account = self.accounts.signing_session.try_borrow_mut()?;
         signing_account[..serialized_len].copy_from_slice(&serialized_data);
 

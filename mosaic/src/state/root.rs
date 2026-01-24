@@ -1,4 +1,6 @@
-use crate::{errors::MosaicError, instructions::init_root::InitializeRootIxData};
+use crate::{
+    errors::MosaicError, instructions::init_root::InitializeRootIxData, state::PackUnpack,
+};
 use pinocchio::{Address, error::ProgramError};
 
 /// root data
@@ -63,15 +65,4 @@ impl Root {
     }
 }
 
-impl Root {
-    /// returns serialized data with length
-    pub fn serialize(&self) -> Result<(Vec<u8>, usize), ProgramError> {
-        let data = borsh::to_vec(&self).map_err(|_| ProgramError::InvalidAccountData)?;
-        let size = data.len();
-        Ok((data, size))
-    }
-    /// returns deserialized data
-    pub fn deserialize(data: &[u8]) -> Result<Self, ProgramError> {
-        borsh::from_slice(&data).map_err(|_| ProgramError::InvalidAccountData)
-    }
-}
+impl PackUnpack for Root {}
