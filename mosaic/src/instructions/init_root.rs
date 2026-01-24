@@ -1,5 +1,9 @@
 use crate::{
-    ID, errors::MosaicError, instructions::root_pda_check, seeds::ROOT_PDA, state::root::Root,
+    ID,
+    errors::MosaicError,
+    instructions::root_pda_check,
+    seeds::ROOT_PDA,
+    state::{PackUnpack, root::Root},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use pinocchio::{
@@ -88,7 +92,7 @@ impl<'info> InitializeOperators<'info> {
         let root_seeds = [Seed::from(ROOT_PDA), Seed::from(&root_ix_data_bump)];
         let cpi_signer = Signer::from(&root_seeds);
 
-        let (root_data, root_data_len) = Root::init(self.instruction_data.clone()).serialize()?;
+        let (root_data, root_data_len) = Root::init(self.instruction_data.clone()).pack()?;
 
         // create account
         pinocchio_system::instructions::CreateAccount {

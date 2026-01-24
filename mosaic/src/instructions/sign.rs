@@ -2,7 +2,7 @@ use crate::{
     ID,
     errors::MosaicError,
     instructions::{root_pda_check, signing_session_pda_check},
-    state::{root::Root, signing_session::SigningSession},
+    state::{PackUnpack, root::Root, signing_session::SigningSession},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use pinocchio::{
@@ -93,7 +93,7 @@ impl<'info> TryFrom<(&'info [AccountView], &'info [u8])> for Sign<'info> {
 impl<'info> Sign<'info> {
     pub fn handler(&mut self) -> ProgramResult {
         let root_account = &self.accounts.root.try_borrow()?;
-        let root_data = Root::deserialize(&root_account)?;
+        let root_data = Root::unpack(&root_account)?;
 
         signing_session_pda_check(
             &self.accounts.signing_session.address(),
@@ -103,7 +103,7 @@ impl<'info> Sign<'info> {
         )?;
 
         let signing_account = self.accounts.signing_session.try_borrow()?;
-        let mut signing: SigningSession = SigningSession::deserialize(&signing_account)?;
+        let mut signing: SigningSession = SigningSession::unpack(&signing_account)?;
 
         root_pda_check(&self.accounts.root.address(), &[root_data.bump])?;
         Self::mandatory_account_data_checks(&signing, &root_data, self.accounts.payer.address())?;
@@ -114,7 +114,7 @@ impl<'info> Sign<'info> {
             signing.progress_phase_checked()?;
         }
 
-        let (signing, new_signing_len) = signing.serialize()?;
+        let (signing, new_signing_len) = signing.pack()?;
         let current_data_len = signing_account.len();
 
         if new_signing_len != current_data_len {
