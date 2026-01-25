@@ -40,19 +40,17 @@ impl Root {
         &self,
         destination_program: &Address,
     ) -> Result<(), ProgramError> {
-        if &self.destination_program != destination_program {
-            return Err(
-                MosaicError::ProvidedDestinationProgramMismatchWithRootDestinationProgram.into(),
-            );
-        };
-        Ok(())
+        (&self.destination_program == destination_program)
+            .then_some(())
+            .ok_or(MosaicError::ProvidedDestinationProgramMismatchWithRootDestinationProgram.into())
     }
+
     /// checks if signer is present among known operators
     pub fn signer_must_be_operator(&self, signer: &Address) -> Result<(), ProgramError> {
-        if !self.operators.contains(signer) {
-            return Err(MosaicError::SignerIsNotOperator.into());
-        }
-        Ok(())
+        self.operators
+            .contains(signer)
+            .then_some(())
+            .ok_or(MosaicError::SignerIsNotOperator.into())
     }
 
     /// increments last id session

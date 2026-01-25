@@ -1,8 +1,7 @@
 use crate::{
-    ID,
+    ID, SIGNING_SESSION_PDA,
     errors::MosaicError,
     instructions::{root_pda_check, signing_session_pda_check},
-    seeds::SIGNING_SESSION_PDA,
     state::{PackUnpack, root::Root, signing_session::SigningSession},
 };
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -29,6 +28,7 @@ impl<'info> TryFrom<&'info [AccountView]> for InitializeSigningSessionIxAccounts
     type Error = ProgramError;
 
     fn try_from(accounts: &'info [AccountView]) -> Result<Self, Self::Error> {
+        // perform accounts attribute check
         let [payer, root, signing_session, _system_program] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
@@ -98,8 +98,15 @@ impl<'info> TryFrom<(&'info [AccountView], &'info [u8])> for InitializeSigningSe
 
 impl<'info> InitializeSigningSession<'info> {
     pub fn handler(&mut self) -> ProgramResult {
-        let mut root_account = self.accounts.root.try_borrow_mut()?;
+        let root_account = self.accounts.root.try_borrow()?;
+        root_pda_check(
+            &self.accounts.root.address(),
+            &[*root_account.last().unwrap()],
+        )?;
+
         let mut root_data = Root::unpack(&root_account)?;
+        Self::mandatory_checks(&root_data, self.accounts.payer.address())?;
+        drop(root_account);
 
         root_data.increment_last_id()?;
 
@@ -110,11 +117,7 @@ impl<'info> InitializeSigningSession<'info> {
             &[self.instruction_data.bump],
         )?;
 
-        root_pda_check(&self.accounts.root.address(), &[root_data.bump])?;
-        Self::mandatory_account_data_checks(&root_data, self.accounts.payer.address())?;
-
         let derivation_new_last_session = &root_data.last_id.to_be_bytes();
-
         let signing_session_ix_data_bump = [self.instruction_data.bump];
         let signing_session_seeds = [
             Seed::from(self.accounts.root.address().as_ref()),
@@ -130,6 +133,7 @@ impl<'info> InitializeSigningSession<'info> {
             self.accounts.root.address(),
         )
         .pack()?;
+        let (root_data, root_data_len) = root_data.pack()?;
 
         // create signing session account
         pinocchio_system::instructions::CreateAccount {
@@ -141,21 +145,18 @@ impl<'info> InitializeSigningSession<'info> {
         }
         .invoke_signed(&[cpi_signer])?;
 
-        // write updated root state
-        let (updated_root_data, updated_root_data_len) = root_data.pack()?;
-        root_account[..updated_root_data_len].copy_from_slice(&updated_root_data);
-
-        // write to signing session account
+        let mut root_account = self.accounts.root.try_borrow_mut()?;
         let mut signing_data = self.accounts.signing_session.try_borrow_mut()?;
+
+        root_account[..root_data_len].copy_from_slice(&root_data);
         signing_data[..signing_session_data.len()].copy_from_slice(&signing_session_data);
 
         Ok(())
     }
 
     #[must_use]
-    fn mandatory_account_data_checks(root: &Root, signer: &Address) -> Result<(), ProgramError> {
+    fn mandatory_checks(root: &Root, signer: &Address) -> Result<(), ProgramError> {
         root.signer_must_be_operator(signer)?;
-
         Ok(())
     }
 }
