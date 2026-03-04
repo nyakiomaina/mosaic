@@ -27,6 +27,7 @@ impl<'info> TryFrom<&'info [AccountView]> for SignIxAccounts<'info> {
     type Error = ProgramError;
 
     fn try_from(accounts: &'info [AccountView]) -> Result<Self, Self::Error> {
+        // perform accounts attribute check
         let [payer, root, signing_session, _system_program] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
@@ -95,6 +96,7 @@ impl<'info> Sign<'info> {
         let root_account = &self.accounts.root.try_borrow()?;
         let root_data = Root::unpack(&root_account)?;
 
+        root_pda_check(&self.accounts.root.address(), &[root_data.bump])?;
         signing_session_pda_check(
             &self.accounts.signing_session.address(),
             self.accounts.root.address().as_array(),
@@ -104,43 +106,33 @@ impl<'info> Sign<'info> {
 
         let signing_account = self.accounts.signing_session.try_borrow()?;
         let mut signing: SigningSession = SigningSession::unpack(&signing_account)?;
+        let signing_current_account_size = signing_account.len();
+        drop(signing_account);
 
-        root_pda_check(&self.accounts.root.address(), &[root_data.bump])?;
-        Self::mandatory_account_data_checks(&signing, &root_data, self.accounts.payer.address())?;
-
+        Self::mandatory_checks(&signing, &root_data, self.accounts.payer.address())?;
         signing.approve_checked(self.accounts.payer.address())?;
 
         if signing.check_approvals_reaching_threshold(root_data.threshold.into()) {
             signing.progress_phase_checked()?;
         }
-
         let (signing, new_signing_len) = signing.pack()?;
-        let current_data_len = signing_account.len();
 
-        if new_signing_len != current_data_len {
-            drop(signing_account);
-
-            // calculate new rent
+        if new_signing_len != signing_current_account_size {
             let rent = Rent::get()?;
             let new_minimum_balance = rent.try_minimum_balance(new_signing_len)?;
             let current_lamports = self.accounts.signing_session.lamports();
 
             // top-up missing rent
             if current_lamports < new_minimum_balance {
-                let lamports_needed = new_minimum_balance - current_lamports;
-
                 pinocchio_system::instructions::Transfer {
                     from: self.accounts.payer,
                     to: self.accounts.signing_session,
-                    lamports: lamports_needed,
+                    lamports: new_minimum_balance - current_lamports,
                 }
                 .invoke()?;
             }
-
-            // resize signing session account
             self.accounts.signing_session.resize(new_signing_len)?;
 
-            // re-borrow signing session account / write to
             let mut signing_account = self.accounts.signing_session.try_borrow_mut()?;
             signing_account[..new_signing_len].copy_from_slice(&signing);
         }
@@ -149,7 +141,7 @@ impl<'info> Sign<'info> {
     }
 
     #[must_use]
-    fn mandatory_account_data_checks(
+    fn mandatory_checks(
         signing: &SigningSession,
         root: &Root,
         signer: &Address,

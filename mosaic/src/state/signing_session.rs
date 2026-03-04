@@ -103,52 +103,47 @@ impl SigningSession {
         self.approvals.len() == threshold
     }
 
-    /// progress signing phase with overflow check
+    /// progress signing phase with check
     pub fn progress_phase_checked(&mut self) -> Result<(), ProgramError> {
-        match self.phase {
-            SigningSessionPhase::Executed => {
-                Err(MosaicError::SigningSessionPhaseAtFinalStage.into())
-            }
-            _ => {
-                let current_phase_value: u8 = self.phase.into();
-                self.phase = (current_phase_value + 1).into();
-                Ok(())
-            }
-        }
+        (self.phase != SigningSessionPhase::Executed)
+            .then_some(())
+            .ok_or::<ProgramError>(MosaicError::SigningSessionPhaseAtFinalStage.into())?;
+        self.phase = ((self.phase as u8)
+            .checked_add(1)
+            .ok_or(ProgramError::ArithmeticOverflow)?)
+        .into();
+        Ok(())
     }
 
     /// push signer approval with check if it already was casted
     pub fn approve_checked(&mut self, signer: &Address) -> Result<(), ProgramError> {
-        if self.approvals.contains(signer) {
-            return Err(MosaicError::SigningSessionSignerAlreadyApproved.into());
-        };
-        self.approvals.push(*signer);
+        (!self.approvals.contains(signer))
+            .then_some(())
+            .ok_or::<ProgramError>(MosaicError::SigningSessionSignerAlreadyApproved.into())?;
 
+        self.approvals.push(*signer);
         Ok(())
     }
 
     /// checks if signing session is active
     pub fn must_be_active(&self) -> Result<(), ProgramError> {
-        if self.phase != SigningSessionPhase::Active {
-            return Err(MosaicError::SigningSessionPhaseIncorrect.into());
-        }
-        Ok(())
+        (self.phase == SigningSessionPhase::Active)
+            .then_some(())
+            .ok_or(MosaicError::SigningSessionPhaseIncorrect.into())
     }
 
     /// checks if signing session is approved
     pub fn must_be_approved(&self) -> Result<(), ProgramError> {
-        if self.phase != SigningSessionPhase::Approved {
-            return Err(MosaicError::SigningSessionPhaseIncorrect.into());
-        }
-        Ok(())
+        (self.phase == SigningSessionPhase::Approved)
+            .then_some(())
+            .ok_or(MosaicError::SigningSessionPhaseIncorrect.into())
     }
 
     /// checks if root last id equals the session id
     pub fn sessions_must_equal(&self, root_last_id: u16) -> Result<(), ProgramError> {
-        if self.session_id != root_last_id {
-            return Err(MosaicError::SigningSessionIdMustEqualRootLastId.into());
-        }
-        Ok(())
+        (self.session_id == root_last_id)
+            .then_some(())
+            .ok_or(MosaicError::SigningSessionIdMustEqualRootLastId.into())
     }
 }
 

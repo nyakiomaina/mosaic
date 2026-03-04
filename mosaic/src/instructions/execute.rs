@@ -1,9 +1,8 @@
 use crate::{
-    ID,
+    ID, ROOT_PDA,
     errors::MosaicError,
     instructions::{root_pda_check, signing_session_pda_check},
     invoke_signed_dynamic,
-    seeds::ROOT_PDA,
     state::{
         PackUnpack,
         root::Root,
@@ -39,6 +38,7 @@ impl<'info> TryFrom<&'info [AccountView]> for ExecuteIxAccounts<'info> {
     type Error = ProgramError;
 
     fn try_from(accounts: &'info [AccountView]) -> Result<Self, Self::Error> {
+        // perform accounts attribute check
         let (required_accounts, remaining) = accounts.split_at(5);
         let [payer, root, signing_session, _sys_program, _dst_program] = required_accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -126,46 +126,46 @@ impl<'info> Execute<'info> {
             root_data.last_id,
             &[signing_data.bump],
         )?;
-        Self::mandatory_account_data_checks(
+        Self::mandatory_checks(
             &signing_data,
             &root_data,
             self.accounts._dst_program.address(),
         )?;
 
-        // dynamic metas; allows for mapping accounts stored in signing session account
-        let mut instruction_accounts: Vec<PinocchioInstructionAccount> = vec![];
-        let mut addresses = vec![];
-
-        for instruction_account_data in &signing_data.instruction_accounts {
-            let ix_acc = InstructionAccount::deserialize(instruction_account_data)?;
-            addresses.push(Address::new_from_array(ix_acc.pubkey));
-        }
-
-        for (i, instruction_account_data) in signing_data.instruction_accounts.iter().enumerate() {
-            let ix_acc = InstructionAccount::deserialize(instruction_account_data)?;
-            let pinocchio_acc = match (ix_acc.signer, ix_acc.writable) {
-                (true, true) => PinocchioInstructionAccount::writable_signer(&addresses[i]),
-                (true, false) => PinocchioInstructionAccount::readonly_signer(&addresses[i]),
-                (false, true) => PinocchioInstructionAccount::writable(&addresses[i]),
-                (false, false) => PinocchioInstructionAccount::readonly(&addresses[i]),
-            };
-            instruction_accounts.push(pinocchio_acc);
-        }
-
-        let mut account_views: Vec<&AccountView> = vec![];
-        for address in addresses.iter() {
-            if address.as_ref() == root_pda.as_ref() {
-                account_views.push(self.accounts.root);
-            } else {
-                let found = self
-                    .accounts
-                    .remaining
-                    .iter()
-                    .find(|acc| acc.address().as_ref() == address.as_ref())
-                    .ok_or(ProgramError::NotEnoughAccountKeys)?;
-                account_views.push(found);
-            }
-        }
+        // dynamic metas
+        let ix_accs: Vec<InstructionAccount> = signing_data
+            .instruction_accounts
+            .iter()
+            .map(|d| InstructionAccount::deserialize(d))
+            .collect::<Result<_, _>>()?;
+        let addresses: Vec<Address> = ix_accs
+            .iter()
+            .map(|a| Address::new_from_array(a.pubkey))
+            .collect();
+        let instruction_accounts: Vec<PinocchioInstructionAccount> = ix_accs
+            .iter()
+            .zip(addresses.iter())
+            .map(|(a, addr)| match (a.signer, a.writable) {
+                (true, true) => PinocchioInstructionAccount::writable_signer(addr),
+                (true, false) => PinocchioInstructionAccount::readonly_signer(addr),
+                (false, true) => PinocchioInstructionAccount::writable(addr),
+                (false, false) => PinocchioInstructionAccount::readonly(addr),
+            })
+            .collect();
+        let account_views: Vec<&AccountView> = addresses
+            .iter()
+            .map(|address| {
+                (address.as_ref() == root_pda.as_ref())
+                    .then_some(Ok(self.accounts.root))
+                    .unwrap_or_else(|| {
+                        self.accounts
+                            .remaining
+                            .iter()
+                            .find(|acc| acc.address().as_ref() == address.as_ref())
+                            .ok_or(ProgramError::NotEnoughAccountKeys)
+                    })
+            })
+            .collect::<Result<_, _>>()?;
 
         // cpi to destination program
         let instruction = InstructionView {
@@ -187,7 +187,7 @@ impl<'info> Execute<'info> {
     }
 
     #[must_use]
-    fn mandatory_account_data_checks(
+    fn mandatory_checks(
         signing_session: &SigningSession,
         root: &Root,
         ix_provided_destination_program: &Address,
