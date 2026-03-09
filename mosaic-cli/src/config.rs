@@ -16,8 +16,9 @@ pub struct Config {
     #[serde(default = "default_rpc_url")]
     pub rpc_url: String,
 
-    /// Program ID
-    pub program_id: Option<String>,
+    /// Mosaic program ID
+    #[serde(alias = "program_id")]
+    pub mosaic_id: Option<String>,
 
     /// Default payer keypair path
     pub payer_keypair: Option<PathBuf>,
@@ -34,7 +35,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rpc_url: default_rpc_url(),
-            program_id: None,
+            mosaic_id: None,
             payer_keypair: None,
             destination_program: None,
         }
@@ -49,7 +50,7 @@ pub fn load_config(config_path: Option<&PathBuf>) -> Result<Config> {
         figment = figment.merge(Toml::file("Mosaic.toml"));
     }
     figment = figment.merge(Env::prefixed("MOSAIC_"));
-    
+
     Ok(figment.extract()?)
 }
 
@@ -57,15 +58,15 @@ pub fn merge_cli_config(config: &mut Config, cli: &Cli) {
     if let Some(rpc_url) = &cli.rpc_url {
         config.rpc_url = rpc_url.clone();
     }
-    if let Some(program_id) = &cli.program_id {
-        config.program_id = Some(program_id.clone());
+    if let Some(mosaic_id) = &cli.mosaic_id {
+        config.mosaic_id = Some(mosaic_id.clone());
     }
 }
 
-pub fn get_program_id(config: &Config) -> Result<Pubkey> {
+pub fn get_mosaic_id(config: &Config) -> Result<Pubkey> {
     config
-        .program_id
+        .mosaic_id
         .as_ref()
-        .ok_or_else(|| anyhow!("Program ID not configured"))
-        .and_then(|s| Pubkey::from_str(s).context("Invalid program ID"))
+        .ok_or_else(|| anyhow!("Mosaic program ID not configured"))
+        .and_then(|s| Pubkey::from_str(s).context("Invalid mosaic program ID"))
 }

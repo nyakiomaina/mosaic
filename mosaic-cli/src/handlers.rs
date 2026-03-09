@@ -14,7 +14,7 @@ use solana_sdk_ids::system_program;
 use tracing::{debug, info};
 
 use crate::{
-    config::{Config, get_program_id},
+    config::{Config, get_mosaic_id},
     types::{
         CloseSessionIxData, CreateSessionIxData, ExecuteIxData, InitializeRootIxData,
         InstructionAccount, InstructionAccountJson, ProgramIx, Root, SignIxData, SigningSession,
@@ -22,8 +22,8 @@ use crate::{
     },
 };
 
-const ROOT_PDA: &[u8] = b"root";
-const SIGNING_SESSION_PDA: &[u8] = b"signing_session";
+const ROOT_PDA: &[u8] = b"root_pda";
+const SIGNING_SESSION_PDA: &[u8] = b"signing_session_pda";
 
 fn load_keypair(path: &PathBuf) -> Result<Keypair> {
     match read_keypair_file(path) {
@@ -41,7 +41,7 @@ pub async fn handle_initialize_root(
 ) -> Result<()> {
     info!("Initializing root account...");
 
-    let program_id = get_program_id(config)?;
+    let program_id = get_mosaic_id(config)?;
     let rpc_client = RpcClient::new_with_commitment(&config.rpc_url, CommitmentConfig::confirmed());
     let operator_pubkeys: Result<Vec<Pubkey>> = operators
         .iter()
@@ -68,8 +68,8 @@ pub async fn handle_initialize_root(
     let ix_data = InitializeRootIxData {
         operators: operator_pubkeys,
         threshold,
-        bump: root_bump,
         destination_program: destination_program_pubkey,
+        bump: root_bump,
     };
     let mut data = vec![ProgramIx::InitializeOperators as u8];
     data.extend_from_slice(&borsh::to_vec(&ix_data)?);
@@ -102,14 +102,11 @@ pub async fn handle_initialize_root(
 
 pub async fn handle_create_session(
     config: &Config,
-    session_id: u16,
     instruction_data: String,
     accounts: String,
     payer_path: Option<PathBuf>,
 ) -> Result<()> {
-    info!("Creating signing session {}...", session_id);
-
-    let program_id = get_program_id(config)?;
+    let program_id = get_mosaic_id(config)?;
     let rpc_client = RpcClient::new_with_commitment(&config.rpc_url, CommitmentConfig::confirmed());
     let instruction_data = hex::decode(instruction_data.trim_start_matches("0x"))
         .context("Invalid hex string for instruction data")?;
@@ -140,6 +137,15 @@ pub async fn handle_create_session(
 
     let (root_pda, _) = Pubkey::find_program_address(&[ROOT_PDA], &program_id);
 
+    // Read root to get next session_id
+    let root_account = rpc_client.get_account(&root_pda)
+        .context("Failed to fetch root account. Has it been initialized?")?;
+    let root = Root::try_from_slice(&root_account.data)
+        .context("Failed to deserialize root account")?;
+    let session_id = root.last_id.checked_add(1)
+        .ok_or_else(|| anyhow!("Session ID overflow"))?;
+    info!("Creating signing session {}...", session_id);
+
     let (signing_pda, signing_bump) = Pubkey::find_program_address(
         &[
             &root_pda.to_bytes(),
@@ -154,7 +160,6 @@ pub async fn handle_create_session(
     );
 
     let create_ix_data = CreateSessionIxData {
-        session_id,
         instruction_data,
         instruction_accounts,
         bump: signing_bump,
@@ -193,7 +198,7 @@ pub async fn handle_create_session(
 pub async fn handle_sign(config: &Config, session_id: u16, signer_path: PathBuf) -> Result<()> {
     info!("Signing session {}...", session_id);
 
-    let program_id = get_program_id(config)?;
+    let program_id = get_mosaic_id(config)?;
     let rpc_client = RpcClient::new_with_commitment(&config.rpc_url, CommitmentConfig::confirmed());
 
     let signer = load_keypair(&signer_path)?;
@@ -238,12 +243,14 @@ pub async fn handle_sign(config: &Config, session_id: u16, signer_path: PathBuf)
     let account = rpc_client.get_account(&signing_pda)?;
     let session = SigningSession::try_from_slice(&account.data)?;
 
+    let root_account = rpc_client.get_account(&root_pda)?;
+    let root = Root::try_from_slice(&root_account.data)?;
     info!("\n✅ Session signed successfully!");
     info!("Transaction signature: {}", signature);
     info!(
         "Current approvals: {}/{}",
         session.approvals.len(),
-        session.approvals.len()
+        root.threshold
     );
     info!("Approvers:");
     for approver in &session.approvals {
@@ -257,30 +264,25 @@ pub async fn handle_sign(config: &Config, session_id: u16, signer_path: PathBuf)
 pub async fn handle_execute(
     config: &Config,
     session_id: u16,
-    storage_account: String,
     executor_path: PathBuf,
 ) -> Result<()> {
     info!("Executing session {}...", session_id);
 
-    let program_id = get_program_id(config)?;
+    let program_id = get_mosaic_id(config)?;
     let rpc_client = RpcClient::new_with_commitment(&config.rpc_url, CommitmentConfig::confirmed());
 
     let executor = load_keypair(&executor_path)?;
     info!("Executor: {}", executor.pubkey());
 
-    let storage_pubkey =
-        Pubkey::from_str(&storage_account).context("Invalid storage account pubkey")?;
+    let (root_pda, _) = Pubkey::find_program_address(&[ROOT_PDA], &program_id);
 
     let destination_program = if let Some(dest) = &config.destination_program {
         Pubkey::from_str(dest).context("Invalid destination program ID")?
     } else {
-        let (root_pda, _) = Pubkey::find_program_address(&[ROOT_PDA], &program_id);
         let account = rpc_client.get_account(&root_pda)?;
         let root = Root::try_from_slice(&account.data)?;
         root.destination_program
     };
-
-    let (root_pda, _) = Pubkey::find_program_address(&[ROOT_PDA], &program_id);
 
     let (signing_pda, _) = Pubkey::find_program_address(
         &[
@@ -301,6 +303,26 @@ pub async fn handle_execute(
         ));
     }
 
+    // Build CPI accounts dynamically from session data
+    let mut account_metas = vec![
+        AccountMeta::new(executor.pubkey(), true),
+        AccountMeta::new_readonly(root_pda, false),
+        AccountMeta::new(signing_pda, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+        AccountMeta::new_readonly(destination_program, false),
+    ];
+
+    for serialized_account in &session.instruction_accounts {
+        let ia = InstructionAccount::try_from_slice(serialized_account)
+            .context("Failed to deserialize instruction account from session")?;
+        let pubkey = Pubkey::new_from_array(ia.pubkey);
+        if ia.writable {
+            account_metas.push(AccountMeta::new(pubkey, false));
+        } else {
+            account_metas.push(AccountMeta::new_readonly(pubkey, false));
+        }
+    }
+
     let execute_ix_data = ExecuteIxData {};
     let mut data = vec![ProgramIx::Execute as u8];
     data.extend_from_slice(&borsh::to_vec(&execute_ix_data)?);
@@ -308,14 +330,7 @@ pub async fn handle_execute(
     let instruction = Instruction::new_with_bytes(
         program_id,
         &data,
-        vec![
-            AccountMeta::new(executor.pubkey(), true),
-            AccountMeta::new_readonly(root_pda, false),
-            AccountMeta::new(signing_pda, false),
-            AccountMeta::new_readonly(system_program::id(), false),
-            AccountMeta::new_readonly(destination_program, false),
-            AccountMeta::new(storage_pubkey, false),
-        ],
+        account_metas,
     );
 
     let recent_blockhash = rpc_client.get_latest_blockhash()?;
@@ -338,7 +353,7 @@ pub async fn handle_execute(
 pub async fn handle_view_root(config: &Config) -> Result<()> {
     info!("Fetching root account state...\n");
 
-    let program_id = get_program_id(config)?;
+    let program_id = get_mosaic_id(config)?;
     let rpc_client = RpcClient::new_with_commitment(&config.rpc_url, CommitmentConfig::confirmed());
 
     let (root_pda, _) = Pubkey::find_program_address(&[ROOT_PDA], &program_id);
@@ -368,7 +383,7 @@ pub async fn handle_view_root(config: &Config) -> Result<()> {
 pub async fn handle_view_session(config: &Config, session_id: u16) -> Result<()> {
     info!("Fetching signing session {}...\n", session_id);
 
-    let program_id = get_program_id(config)?;
+    let program_id = get_mosaic_id(config)?;
     let rpc_client = RpcClient::new_with_commitment(&config.rpc_url, CommitmentConfig::confirmed());
 
     let (root_pda, _) = Pubkey::find_program_address(&[ROOT_PDA], &program_id);
@@ -414,7 +429,7 @@ pub async fn handle_view_session(config: &Config, session_id: u16) -> Result<()>
 pub async fn handle_list_sessions(config: &Config) -> Result<()> {
     info!("Listing all signing sessions...\n");
 
-    let program_id = get_program_id(config)?;
+    let program_id = get_mosaic_id(config)?;
     let rpc_client = RpcClient::new_with_commitment(&config.rpc_url, CommitmentConfig::confirmed());
 
     let accounts = rpc_client.get_program_accounts(&program_id)?;
@@ -460,7 +475,7 @@ pub async fn handle_close_session(
 ) -> Result<()> {
     info!("Closing session {}...", session_id);
 
-    let program_id = get_program_id(config)?;
+    let program_id = get_mosaic_id(config)?;
     let rpc_client = RpcClient::new_with_commitment(&config.rpc_url, CommitmentConfig::confirmed());
 
     let closer = load_keypair(&closer_path)?;

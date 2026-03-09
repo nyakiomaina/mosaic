@@ -28,7 +28,7 @@ struct Cli {
     rpc_url: Option<String>,
 
     #[arg(long, global = true)]
-    program_id: Option<String>,
+    mosaic_id: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -48,9 +48,6 @@ enum Commands {
     },
 
     CreateSession {
-        #[arg(short, long)]
-        session_id: u16,
-
         // (hex string)
         #[arg(short, long)]
         instruction_data: String,
@@ -74,10 +71,6 @@ enum Commands {
     Execute {
         #[arg(short, long)]
         session_id: u16,
-
-        /// public key
-        #[arg(long)]
-        storage_account: String,
 
         #[arg(short, long)]
         executor: PathBuf,
@@ -122,17 +115,15 @@ async fn main() -> Result<()> {
                 .await?
         }
         Commands::CreateSession {
-            session_id,
             instruction_data,
             accounts,
             payer,
-        } => handle_create_session(&config, session_id, instruction_data, accounts, payer).await?,
+        } => handle_create_session(&config, instruction_data, accounts, payer).await?,
         Commands::Sign { session_id, signer } => handle_sign(&config, session_id, signer).await?,
         Commands::Execute {
             session_id,
-            storage_account,
             executor,
-        } => handle_execute(&config, session_id, storage_account, executor).await?,
+        } => handle_execute(&config, session_id, executor).await?,
         Commands::ViewRoot => handle_view_root(&config).await?,
         Commands::ViewSession { session_id } => handle_view_session(&config, session_id).await?,
         Commands::ListSessions => handle_list_sessions(&config).await?,

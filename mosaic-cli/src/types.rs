@@ -6,8 +6,8 @@ use solana_sdk::pubkey::Pubkey;
 pub struct InitializeRootIxData {
     pub operators: Vec<Pubkey>,
     pub threshold: u8,
-    pub bump: u8,
     pub destination_program: Pubkey,
+    pub bump: u8,
 }
 
 #[repr(u8)]
@@ -26,7 +26,7 @@ pub struct InstructionAccountJson {
     pub writable: bool,
 }
 
-#[derive(BorshSerialize)]
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct InstructionAccount {
     pub pubkey: [u8; 32],
     pub signer: bool,
@@ -35,7 +35,6 @@ pub struct InstructionAccount {
 
 #[derive(BorshSerialize, BorshDeserialize)]
 pub struct CreateSessionIxData {
-    pub session_id: u16,
     pub instruction_data: Vec<u8>,
     pub instruction_accounts: Vec<Vec<u8>>,
     pub bump: u8,
@@ -60,6 +59,7 @@ pub struct SigningSession {
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq)]
 pub enum SigningSessionPhase {
+    Uninitialized,
     Active,
     Approved,
     Executed,
@@ -69,8 +69,8 @@ pub enum SigningSessionPhase {
 pub struct Root {
     pub operators: Vec<Pubkey>,
     pub last_id: u16,
-    pub destination_program: Pubkey,
     pub threshold: u8,
+    pub destination_program: Pubkey,
     pub bump: u8,
 }
 
